@@ -12,18 +12,15 @@ from concurrent_battle import ConcurrentBattleBot
 from echobot import EchoBot
 from langcatbot import LangCatBot
 
-# Echo bot is a very simple bot that just echoes back the user's last message.
-bot = EchoBot()
 
 # A sample bot that showcases the capabilities the protocol provides. Please see the
 # following link for the full set of available message commands:
 # https://github.com/poe-platform/api-bot-tutorial/blob/main/catbot/catbot.md
-# bot = CatBot()
+#bot = CatBot()
 
 # A custom chatbot built on top of ChatGPT and LangChain.
 # Add your OpenAI key here, e.g. sk-1234
 # You can obtain a key at https://platform.openai.com/account/api-keys
-# OPEN_AI_API_KEY = ""
 # bot = LangCatBot(OPEN_AI_API_KEY)
 
 # A bot that wraps Poe's Sage bot, but makes all messages ALL CAPS.
@@ -33,7 +30,7 @@ bot = EchoBot()
 # bot = BattleBot()
 
 # Like BattleBot, but streams both responses at once.
-# bot = ConcurrentBattleBot()
+#bot = ConcurrentBattleBot()
 
 # Optionally add your Poe API key here. You can go to https://poe.com/create_bot?api=1 to generate
 # one. We strongly recommend adding this key for a production bot to prevent abuse,
@@ -41,4 +38,7 @@ bot = EchoBot()
 # POE_API_KEY = ""
 # app = make_app(bot, api_key=POE_API_KEY)
 
-app = make_app(bot, allow_without_key=True)
+import os
+POE_API_KEY = os.getenv('POE_API_KEY')
+bot = EchoBot()
+app = make_app(bot, api_key=POE_API_KEY)
