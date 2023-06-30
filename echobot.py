@@ -15,8 +15,9 @@ from fastapi_poe.client import MetaMessage, stream_request
 from sse_starlette.sse import ServerSentEvent
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-from spotipy.oauth2 import CacheFileHandler
 import json
+import time
+import difflib
 
 GENRES = [
   'acoustic', 'afrobeat', 'alt-rock', 'alternative', 'ambient', 'anime',
@@ -73,36 +74,29 @@ def parse_genres(genres: list[str]) -> list[str]:
     if g in GENRES:
       gs.append(g)
     else:
-      print(f"Could not find genre {g}, ignoring it!")
-  return gs
+      if repl:=difflib.get_close_matches(g, GENRES, n=1):
+        gs.append(repl)
+      else:
+        print(f"Could not find genre {g}, ignoring it!")
+  return [g for g in gs if g in GENRES]
 
 
 def get_artists_url(sp: spotipy.Spotify, artists: list[str]) -> list[str]:
   urls = []
   for artist in artists:
     res = sp.search(f'artist:{artist}', type="artist")
-    print(f"Res: {res}")
     if res and 'artists' in res and 'items' in res['artists']:
-      print(res)
       res = res['artists']['items']
       if res and 'external_urls' in res[0] and 'spotify' in res[0][
           'external_urls']:
         urls.append(res[0]['external_urls']['spotify'])
-  print(f"Urls: {urls}")
   return urls
 
+def clean_response(msg) -> str:
+  return msg[msg.find('{'):msg.rfind('}')+1]
 
-class EchoBot(PoeBot):
-
-  async def get_response(
-      self, query: QueryRequest) -> AsyncIterable[ServerSentEvent]:
-    spotify = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-      cache_handler=CacheFileHandler(cache_path="spotipy/.cache")))
+async def get_recommendations(query):
     response = ""
-    prompt = query.query[-1].content
-    print(f"user prompt: {prompt}")
-    query.query[-1].content = PROMPT_FORMAT.format(prompt=prompt,
-                                                   genres=GENRES)
     async for msg in stream_request(query, BOT, query.api_key):
       if isinstance(msg, MetaMessage):
         continue
@@ -116,25 +110,46 @@ class EchoBot(PoeBot):
         response += msg.text
         #yield self.text_event(msg.text)
     print(f"res: '{response}'")
-    json_res = json.loads(response.strip())
+    json_res = json.loads(clean_response(response))
     summary = json_res.get('summary', "")
     artists = json_res.get('artist', [])
     genres = json_res.get('genre', [])
     title = json_res.get('title', "")
-    n = json_res['n']
-    print(f"sum: {summary}")
-    print(f"art {artists}")
-    print(f"gen {genres}")
-    print(f"title {title}")
-    print(f"n {n}")
+    n = json_res.get('n', 10)
+    return summary, artists, genres, title, n
 
-    yield self.text_event(f"\n{summary}\nPlaylist '{title}':\n")
-    art_urls = get_artists_url(spotify, artists)
-    genres = parse_genres(genres)
+class EchoBot(PoeBot):
+  async def get_response(
+      self, query: QueryRequest) -> AsyncIterable[ServerSentEvent]:
+    spotify = spotipy.Spotify(auth_manager=SpotifyClientCredentials())
+    prompt = query.query[-1].content
+    print(f"user prompt: {prompt}")
+    query.query[-1].content = PROMPT_FORMAT.format(prompt=prompt,
+                                                   genres=GENRES)
+    tries = 3
+    while tries:
+      try:
+        summary, artists, genres, title, n = await get_recommendations(query)
+        print(f"sum: {summary}")
+        print(f"gen {genres}")
+        print(f"title {title}")
+        art_urls = get_artists_url(spotify, artists)
+        print(f"art_urls {art_urls}")
+        print(f"n {n}")
+        genres = parse_genres(genres)
 
-    rec = spotify.recommendations(seed_genres=parse_genres(genres),
-                                  seed_artists=art_urls,
-                                  limit=n)
+        rec = spotify.recommendations(seed_genres=genres,
+                                      seed_artists=art_urls,
+                                      limit=n)
+        break
+      except Exception as e:
+        print(f"Failed try {4-tries}/3 getting recommendations: {e}")
+        tries -= 1
+        time.sleep(2)
+    if not tries:
+      yield self.text_event("Sorry, I couldn't generate you a playlist based on your prompt, please try again.\n")
+      return 
+
     musics = []
     for track in rec['tracks']:
       artists = ", ".join(artist['name'] for artist in track['artists'])
@@ -142,6 +157,7 @@ class EchoBot(PoeBot):
       url = track['external_urls']['spotify']
       musics.append(f"- [{music_name}]({url}) by {artists}")
 
+    yield self.text_event(f"\n{summary}\nPlaylist '{title}':\n")
     yield self.text_event("\n".join(musics))
 
 

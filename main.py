@@ -3,14 +3,10 @@
 # a message back at its user and is a good starting point for your bot, but you can
 # comment/uncomment any of the following code to try out other example bots.
 
+from modal import Image, Stub, asgi_app, Secret
 from fastapi_poe import make_app
-
-from all_caps import AllCapsBot
-from battle import BattleBot
-from catbot import CatBot
-from concurrent_battle import ConcurrentBattleBot
 from echobot import EchoBot
-from langcatbot import LangCatBot
+import os
 
 
 # A sample bot that showcases the capabilities the protocol provides. Please see the
@@ -38,7 +34,14 @@ from langcatbot import LangCatBot
 # POE_API_KEY = ""
 # app = make_app(bot, api_key=POE_API_KEY)
 
-import os
-POE_API_KEY = os.getenv('POE_API_KEY')
+
+image = Image.debian_slim().pip_install_from_requirements("requirements.txt")
+stub = Stub("poe-bot-quickstart")
 bot = EchoBot()
-app = make_app(bot, api_key=POE_API_KEY)
+
+@stub.function(image=image, secret=Secret.from_name("gptunes-secrets"))
+@asgi_app()
+def fastapi_app():
+    POE_API_KEY = os.getenv('POE_API_KEY')
+    app = make_app(bot, api_key=POE_API_KEY)
+    return app
